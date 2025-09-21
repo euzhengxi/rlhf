@@ -10,9 +10,11 @@ client = OpenAI(api_key=OPENAI_API)
 def query_feedback(mission:str, dir: str, state: list, noise: int) -> str:
     prompt = f'You are providing feedback to help an agent complete the mission: {mission}. \
                 The agent is facing {dir} and sees: {state}. \
-                You should give helpful and relevant feedback.  \
-                However, with probability {noise}%, introduce noise by making the feedback irrelevant, misleading, or vague. \
-                Output only one short feedback sentence.'
+                Provide feedback to help the agent however,   \
+                there is a probability {noise} that you add conflicting and random information into the feedback\
+                The final feedback should at most be 40 words. \
+                An example of a conflicting feedback: go up, maybe dont go up, maybe left?'
+                    
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
@@ -21,13 +23,15 @@ def query_feedback(mission:str, dir: str, state: list, noise: int) -> str:
     return response.choices[0].message.content
 
 #evaluate current feedback using LLM
-def query_evaluation(mission:str, feedback: str) -> str:
+def query_evaluation(state:list, mission:str, feedback: str) -> float:
     prompt = f'Evaluate the following feedback:\
                 {feedback} \
                 Use these criteria: \
-                1. Clarity (1 - 5) \
-                2. Relevance to mission: {mission}(1 - 5) \
+                1. Clarity (1 - 5): how detailed is it and is the feedback contradictory?  \
+                2. Relevance (1 - 5): given this state: {state} and mission: {mission}, is the feedback relevant?  \
                 3. Overall score: +1 (good state) or -1 (bad state) \
+                low clarity: go the blue door, actually go to the red door instead \
+                high clarity: go up 1 square, then go left 1 square and open the door \
                 Respond strictly in this format: \
                     Clarity: <score> \
                     Relevance: <score> \
@@ -36,5 +40,10 @@ def query_evaluation(mission:str, feedback: str) -> str:
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
     )
-    print(response.choices[0].message.content)
-    return response.choices[0].message.content
+    feedback = [] #clarity, relevance, sentiment
+    for line in  response.choices[0].message.content.splitlines():
+        if ":" in line:
+            k, v = line.split(":", 1)
+            feedback.append(int(v.strip().replace("+", "")))
+
+    return (feedback[0] / 5) * ((feedback[1]) / 5) * feedback[2]

@@ -55,8 +55,8 @@ if __name__ == "__main__":
         mapp, dir = summarize_state(env)
         plt.imshow(obs['image'])
         plt.show()
-        feedback = query_feedback(mission=mission, dir=dir, state=mapp, noise=50)
-        evaluation = query_evaluation(mission=mission, feedback=feedback)
+        feedback = query_feedback(mission=mission, dir=dir, state=mapp, noise=30)
+        evaluation = query_evaluation(state=mapp, mission=mission, feedback=feedback)
 
 #can start with fully observable for now
 

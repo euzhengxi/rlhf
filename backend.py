@@ -19,7 +19,6 @@ def query_feedback(mission:str, dir: str, state: list, noise: int) -> str:
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
     )
-    print(response.choices[0].message.content)
     return response.choices[0].message.content
 
 #evaluate current feedback using LLM

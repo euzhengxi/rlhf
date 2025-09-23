@@ -24,8 +24,9 @@ def create_actor(env, device):
         nn.LazyLinear(env.action_space.n, device=device),
     )
 
+    #consider amending in_keys to include direction in future
     policy_module = TensorDictModule(
-        actor_net, in_keys=["image"], out_keys=["logits"]
+        actor_net, in_keys=[("observation", "image")], out_keys=["logits"]
     )
 
     actor = ProbabilisticActor(
@@ -50,7 +51,7 @@ def create_critic(device):
 
     critic = ValueOperator(
         module=value_net,
-        in_keys=[("observation", "image")]
+        in_keys=[("observation", "image")],
     )
 
     return critic

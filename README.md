@@ -9,4 +9,18 @@ PPO needs sufficient samples to be stable and GAE requires trajectories rather t
 
 to review:
 double check the implementation for discrete distributions for actor
-data collection for batches / multiple env
+stepCount tracking - can be omitted for now
+critic network - trajectory vs individual state reward & trajectory reward computation
+backend - review prompt and results
+
+
+to read up before training:
+1. advantage parameters - gamma, lambda
+2. scheduler & how it works 
+3. calculations for advantage module - what is used as the baseline? 
+
+
+nice to haves:
+standardise naming convention
+
+

@@ -38,7 +38,7 @@ AFIs:
 
 ENV_NAME = "MiniGrid-RedBlueDoors-8x8-v0"
 TOTAL_FRAMES = 10
-FRAMES_PER_BATCH = 5 #file size equivalent
+FRAMES_PER_BATCH = 5 #how many steps you want to take
 FRAMES_PER_SUBBATCH = 5 #256 #mini_batch size, but you dont iterate through as much? 
 MINIBATCHES = FRAMES_PER_BATCH // FRAMES_PER_SUBBATCH
 NUM_EPOCHS = 10 #on policy, so it still needs to be relevant
@@ -63,10 +63,88 @@ def initialise_critic(critic):
     }, batch_size=[1])
     _ = critic(dummy_td) 
 
-#to consider multiple datacollectors
+def collect_samples(obs_images, obs_directions, obs_missions, actions, action_log_probs, rewards, next_obs_images, next_obs_directions, next_obs_missions, dones, batchSize, frameCount, env, actor, device):
+    for i in range(batchSize):
+            td = TensorDict({
+                "observation": TensorDict({
+                    "image": torch.tensor(obs["image"], dtype=torch.float32, device=device).permute(2, 0, 1).unsqueeze(0),
+                }, batch_size=[1])
+            }, batch_size=[1])
+            with torch.no_grad():
+                outputt = actor(td)    
+            next_obs, reward, terminated, truncated, info = env.step(outputt['action'].item())
+            done = terminated or truncated
+            action = outputt['action'].item()
+            action_log_prob = outputt['action_log_prob'].item()    
+            
+            obs_images[i] = torch.tensor(obs["image"], dtype=torch.float32, device=DEVICE).permute(2,0,1)
+            obs_directions[i] = obs["direction"]
+            actions[i] = action
+            action_log_probs[i] = action_log_prob
+            rewards[i] = reward
+            next_obs_images[i] = torch.tensor(next_obs["image"], dtype=torch.float32, device=DEVICE).permute(2,0,1)
+            next_obs_directions[i] = next_obs["direction"]
+            dones[i] = done
+
+            obs = next_obs
+            frame_count += 1
+
+            if done:
+                obs, _ = env.reset()
+
+def multi_sync_collector(workers, framesPerBatch, totalFrames, device, env, actor):
+    obs, _ = env.reset()
+    frameCount = 0
+    #instantiate multiple workers 
+    while frameCount < totalFrames:
+        batchSize = min(framesPerBatch, totalFrames - frameCount)
+
+        obs_images = torch.empty(batchSize, 3, 7, 7, device=device)
+        obs_directions = torch.empty(batchSize, dtype=torch.long, device=device)
+        obs_missions = torch.zeros(batchSize, dtype=torch.long, device=device)
+        actions = torch.empty(batchSize, dtype=torch.long, device=device)
+        action_log_probs = torch.empty(batchSize, dtype=torch.float, device=device)
+        rewards = torch.empty(batchSize, dtype=torch.float, device=device)
+        next_obs_images = torch.empty(batchSize, 3, 7, 7, device=device)
+        next_obs_directions = torch.empty(batchSize, dtype=torch.long, device=device)
+        next_obs_missions = torch.zeros(batchSize, dtype=torch.long, device=device)
+        dones = torch.empty(batchSize, dtype=torch.bool, device=device)
+
+        for i in range(workers):
+            #spawn worker processes
+            collect_samples(obs_images, obs_directions, obs_missions, actions, action_log_probs, rewards, next_obs_images, next_obs_directions, next_obs_missions, dones, batchSize, frameCount, env, actor, device)
+        
+        #join worker processes
+        frameCount += workers * batchSize
+
+        obs = TensorDict({
+                "image": obs_images,
+                "direction": obs_directions,
+                "mission": obs_missions,
+            }, batch_size=[batchSize])
+        next_obs = TensorDict({
+                "image": next_obs_images,
+                "direction": next_obs_directions,
+                "mission": next_obs_missions,
+            }, batch_size=[batchSize])
+    
+        buffer_td = TensorDict({
+            "observation": obs,
+            "action": actions,
+            'action_log_prob': action_log_probs,
+            "next": TensorDict({
+                "observation": next_obs,
+                "reward": rewards,
+                "done": dones,
+            }, batch_size=[batchSize])
+        }, batch_size=[batchSize])
+
+        yield buffer_td
+
 def create_dataCollector(env, actor, frames_per_batch, total_frames, device):
     obs, _ = env.reset()
     frame_count = 0
+    #instantiate multiple workers 
     while frame_count < total_frames:
         batchSize = min(frames_per_batch, total_frames - frame_count)
 
@@ -82,7 +160,6 @@ def create_dataCollector(env, actor, frames_per_batch, total_frames, device):
         dones = torch.empty(batchSize, dtype=torch.bool, device=DEVICE)
 
         for i in range(batchSize):
-            print(obs["image"].shape, batchSize)
             td = TensorDict({
                 "observation": TensorDict({
                     "image": torch.tensor(obs["image"], dtype=torch.float32, device=device).permute(2, 0, 1).unsqueeze(0),

@@ -10,6 +10,8 @@ from gymnasium import RewardWrapper
 
 from backend import query_feedback, query_evaluation
 
+ENV_NAME = "MiniGrid-RedBlueDoors-8x8-v0"
+NUM_ACTIONS = 7 #amend according to env
 TOTAL_FRAMES = 50000
 FRAMES_PER_BATCH = 2048 #file size equivalent
 FRAMES_PER_SUBBATCH = 256 #mini_batch size, but you dont iterate through as much? 
@@ -24,7 +26,7 @@ class CustomRewardWrapper(RewardWrapper):
         self.mission = mission
 
     def reward(self, reward):
-        dir, mapp = self.summarize_state()
+        mapp, dir = self.summarize_state()
         mission = self.mission
         feedback = query_feedback(mission=mission, dir=dir, state=mapp, noise=30)
         evaluation = query_evaluation(state=mapp, mission=mission, feedback=feedback)
@@ -71,8 +73,8 @@ class CustomRewardWrapper(RewardWrapper):
 
         return grid_map, agent_dir_str
 
-def create_env(env_name: str):
-    base_env = gym.make(env_name)
+def create_env():
+    base_env = gym.make(ENV_NAME)
     obs, _ = base_env.reset()
     env = CustomRewardWrapper(base_env, obs['mission'])
     return env

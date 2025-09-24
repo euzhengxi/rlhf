@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 from torchrl.modules import ProbabilisticActor, TanhNormal, ValueOperator
 from tensordict.nn import TensorDictModule
@@ -8,25 +9,21 @@ from torch.distributions import Categorical
 NUM_CELLS = 256
 GAMMA = 0.99
 LAMBDA = 0.95
-class ToFloat(nn.Module):
-    def forward(self, x):
-        return x.float()
 
-def create_actor(env, device):
+def create_actor(numActions, filePath, device):
     actor_net = nn.Sequential(
-        nn.Flatten(),
         nn.LazyLinear(NUM_CELLS, device=device),
         nn.ReLU(),
         nn.LazyLinear(NUM_CELLS, device=device),
         nn.ReLU(),
         nn.LazyLinear(NUM_CELLS, device=device),
         nn.ReLU(),
-        nn.LazyLinear(env.action_space.n, device=device),
+        nn.LazyLinear(numActions, device=device),
     )
 
     #consider amending in_keys to include direction in future
     policy_module = TensorDictModule(
-        actor_net, in_keys=[("observation", "image")], out_keys=["logits"]
+        actor_net, in_keys=[("observation", "combined")], out_keys=["logits"]
     )
 
     actor = ProbabilisticActor(
@@ -35,9 +32,13 @@ def create_actor(env, device):
         distribution_class=Categorical,
         return_log_prob=True
     )
+
+    if (filePath):
+        actor.load_state_dict(torch.load(filePath, map_location=device))
+
     return actor
 
-def create_critic(device):
+def create_critic(filePath, device):
     value_net = nn.Sequential(
         nn.Flatten(),
         nn.LazyLinear(NUM_CELLS, device=device),
@@ -53,6 +54,8 @@ def create_critic(device):
         module=value_net,
         in_keys=[("observation", "image")],
     )
+    if (filePath):
+        critic.load_state_dict(torch.load(filePath, map_location=device))
 
     return critic
 

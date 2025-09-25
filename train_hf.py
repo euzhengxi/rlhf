@@ -9,36 +9,14 @@ from torchrl.data.replay_buffers.samplers import SliceSampler
 from torchrl.data.replay_buffers.storages import LazyTensorStorage
 from torchrl.objectives import ClipPPOLoss
 from collections import defaultdict
-from tqdm import tqdm
 from torchrl.envs.utils import ExplorationType, set_exploration_type
 from tensordict import TensorDict
 from multiprocessing import Pipe, Process
 
+#from other scripts
 from minigrid_env import create_env, NUM_ACTIONS
 from SoftA2C import create_actor, create_critic, create_advantage
 
-'''
-PPO 
-- actor critic with clipped gradient updates, 
-- update the critic every epoch but keep it under control
-
-AFIs:
-1. multiprocessing 
-2. scheduler 
-'''
-
-#encasing minigrid within torch rl env
-#creation of actor
-#creation of value
-#instantiating loss function
-
-#collecting reward 
-#updating of actor model
-#updating of value model (once every 100 frames?)
-
-
-#what are the things i should plot? 
-#step sizes, run
 
 NUM_WORKERS = 1
 TOTAL_FRAMES = 10
@@ -166,6 +144,33 @@ def multi_sync_collector(numWorkers, parentRemotes, framesPerBatch, totalFrames)
 def update_actor_in_workers(parentRemotes, actorStateDict):
     for pr in parentRemotes:
         pr.send(("update", actorStateDict))
+    
+def env_rollout(env, actor): #consider multiple env rollouts and averaging
+    obs, _ = env.reset()
+    done = False
+    totalReward = 0.0
+    stepCount = 0
+
+    while stepCount <= 50 or not done:
+        obs_image = torch.tensor(obs["image"], dtype=torch.float32, device=DEVICE).permute(2, 0, 1).unsqueeze(0)
+        obs_direction = torch.tensor(obs["direction"], dtype=torch.float32, device=DEVICE).view(1, 1) 
+        combined = torch.cat([obs_image.flatten(start_dim=1), obs_direction], dim=1)  
+        td = TensorDict({
+            "observation": TensorDict({
+                "combined": combined
+            }, batch_size=[1])
+        }, batch_size=[1])
+
+        with torch.no_grad():
+            outputt = actor(td)    
+        
+        next_obs, reward, terminated, truncated, info = env.step(outputt['action'].item())
+        done = terminated or truncated
+        totalReward += reward
+        stepCount += 1
+        obs = next_obs
+
+    return totalReward / stepCount, totalReward, stepCount
 
 def training(env, actor, critic, advantage, collector, replayBuffer, parentRemotes, device):
     loss_function = ClipPPOLoss( 
@@ -180,10 +185,11 @@ def training(env, actor, critic, advantage, collector, replayBuffer, parentRemot
     print(">>> starting training")
     print()
     for i, tensordict_data in enumerate(collector):
+        advantage(tensordict_data)  #fixing the landscape for more stable updates in PPO
+        data_view = tensordict_data.reshape(-1)
+        replayBuffer.extend(data_view.cpu()) 
+
         for j in range(NUM_EPOCHS):
-            advantage(tensordict_data) 
-            data_view = tensordict_data.reshape(-1)
-            replayBuffer.extend(data_view.cpu()) 
             for k in range(MINIBATCHES):
                 subdata = replayBuffer.sample(FRAMES_PER_BATCH)
                 loss_vals = loss_function(subdata.to(DEVICE))
@@ -198,41 +204,31 @@ def training(env, actor, critic, advantage, collector, replayBuffer, parentRemot
                 optim.step()
                 optim.zero_grad()
 
-                step = i * NUM_EPOCHS * MINIBATCHES + j * MINIBATCHES + k
+        step = i * NUM_EPOCHS * MINIBATCHES + j * MINIBATCHES
 
-                 #logging
-                logs["reward"].append(tensordict_data["next", "reward"].mean().item())
-                logs["steps"].append(step) #tensordict_data["step_count"].max().item())
-                logs["lr"].append(optim.param_groups[0]["lr"])
+        #logging
+        logs["reward"].append(tensordict_data["next", "reward"].mean().item())
+        logs["steps"].append(step) #tensordict_data["step_count"].max().item())
+        logs["lr"].append(optim.param_groups[0]["lr"])
 
-                print(f'{step}: Current reward: {logs["reward"][-1]: 4.4f} LR: {logs["lr"][-1]: 4.6f}')
+        print(f'{step}: Current reward: {logs["reward"][-1]: 4.4f} LR: {logs["lr"][-1]: 4.6f}')
                 
-                #evaluation and saving state every 10 epochs
-                if (step + 1) % 5 == 0:
-                    update_actor_in_workers(parentRemotes=parentRemotes, actorStateDict=actor.state_dict())
-                    with set_exploration_type(ExplorationType.DETERMINISTIC), torch.no_grad():
-                        next_obs = subdata['next']
-                        next_image = next_obs["observation", "image"][0].to(torch.float32).to(device).permute(2, 0, 1).unsqueeze(0)
-                        direction = next_obs["observation", "direction"][0].to(torch.float32).to(device).view(1, 1)
-                        scombined = torch.cat([next_image.flatten(start_dim=1), direction], dim=1)  
-                        td = TensorDict({
-                            "observation": TensorDict({
-                                "combined": scombined
-                            }, batch_size=[1])
-                        }, batch_size=[1])
-
-                        outputt = actor(td)
-                        next_obs, reward, terminated, truncated, info = env.step(outputt['action'][0])
-                        logs["eval_reward"].append(reward)
-                        logs["eval_reward_sum"].append(reward)
-                        logs["eval_steps"].append(step) #eval_rollout["step_count"].max().item())
+        #evaluation and saving state every 10 epochs
+        if (step + 1) % 5 == 0:
+            update_actor_in_workers(parentRemotes=parentRemotes, actorStateDict=actor.state_dict())
+            with set_exploration_type(ExplorationType.DETERMINISTIC), torch.no_grad():
+                averageReward, trajectoryReward, stepCount = env_rollout(env=env, actor=actor)
+                logs["eval_reward"].append(averageReward)
+                logs["eval_reward_sum"].append(trajectoryReward)
+                logs["eval_steps"].append(stepCount) #eval_rollout["step_count"].max().item())
                          
-                        print(f'EV: Current reward: {logs["eval_reward"][-1]: 4.4f}. Trajectory reward: {logs["eval_reward_sum"][0]: 4.4f}')
-                        print()
+                print(f'EV: Current reward: {logs["eval_reward"][-1]: 4.4f}. Trajectory reward: {logs["eval_reward_sum"][0]: 4.4f}')
+                print()
 
-                    torch.save(actor.state_dict(), os.path.join(EPOCH_FILEPATH, f"actor_step_{logs['steps'][-1]}.pt"))
-                    torch.save(critic.state_dict(), os.path.join(EPOCH_FILEPATH, f"value_step_{logs['steps'][-1]}.pt"))
-                scheduler.step()
+                torch.save(actor.state_dict(), os.path.join(EPOCH_FILEPATH, f"actor_step_{logs['steps'][-1]}.pt"))
+                torch.save(critic.state_dict(), os.path.join(EPOCH_FILEPATH, f"value_step_{logs['steps'][-1]}.pt"))
+        scheduler.step()
+
 
 if __name__ == "__main__":  
     print(">>> initialising variables")

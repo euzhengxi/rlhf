@@ -3,7 +3,7 @@ import gymnasium as gym
 import matplotlib.pyplot as plt
 from minigrid.wrappers import RGBImgPartialObsWrapper, SymbolicObsWrapper
 
-from backend import query_feedback, query_evaluation
+#from backend import query_feedback, query_evaluation
 
 def summarize_state(env):
     view_size = env.unwrapped.agent_view_size
@@ -46,6 +46,7 @@ def summarize_state(env):
 
 if __name__ == "__main__":
     env = gym.make("MiniGrid-RedBlueDoors-8x8-v0", agent_view_size=7)
+    env = RGBImgPartialObsWrapper(env)  # Get pixel observations
     obs, _ = env.reset(seed=124)
     mission = obs['mission']
     
@@ -55,8 +56,8 @@ if __name__ == "__main__":
         mapp, dir = summarize_state(env)
         plt.imshow(obs['image'])
         plt.show()
-        feedback = query_feedback(mission=mission, dir=dir, state=mapp, noise=30)
-        evaluation = query_evaluation(state=mapp, mission=mission, feedback=feedback)
+        #feedback = query_feedback(mission=mission, dir=dir, state=mapp, noise=30)
+        #evaluation = query_evaluation(state=mapp, mission=mission, feedback=feedback)
 
-#can start with fully observable for now
+
 

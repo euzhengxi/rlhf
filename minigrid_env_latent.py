@@ -10,11 +10,18 @@ from gymnasium import RewardWrapper
 
 from backend import query_feedback, query_evaluation
 
+#amend according to env
 ENV_NAME = "MiniGrid-RedBlueDoors-8x8-v0"
-NUM_ACTIONS = 7 #amend according to env
-#TOTAL_FRAMES = 50000
-#FRAMES_PER_BATCH = 2048 #file size equivalent
-#FRAMES_PER_SUBBATCH = 256 #mini_batch size, but you dont iterate through as much? 
+ACTIONDICT = {
+    0: "turn left",
+    1: "turn right",
+    2: "move forward",
+    3: "pick up object",
+    4: "drop object",
+    5: "toggle / activate object",
+    6: "done"
+}
+NUM_ACTIONS = 7
 
 DEVICE = torch.device("cpu")
 
@@ -30,7 +37,7 @@ class CustomRewardWrapper(RewardWrapper):
         mission = self.mission
         feedback = query_feedback(mission=mission, dir=dir, state=mapp, noise=30)
         evaluation = query_evaluation(state=mapp, mission=mission, feedback=feedback)
-        reward = reward + evaluation
+        reward = reward + 0.5 * evaluation
 
         return reward
 
@@ -74,7 +81,8 @@ class CustomRewardWrapper(RewardWrapper):
         return grid_map, agent_dir_str
 
 def create_env():
-    base_env = gym.make(ENV_NAME)
+    base_env = gym.make(ENV_NAME, render_mode="rgb_array")
+    #base_env = RGBImgPartialObsWrapper(base_env) 
     obs, _ = base_env.reset()
     env = CustomRewardWrapper(base_env, obs['mission'])
     return env

@@ -10,13 +10,13 @@ to review:
 double check the implementation for discrete distributions for actor
 backend - review prompt and results
 stepCount tracking - can be omitted for now
-PPO training - whats going on 
-saving of state dicts
+latent feedback computation
 
 
 to read up before training:
 1. scheduler & how it works 
 2. calculations for advantage module - what is used as the baseline?  and how does it compute return? read the GAE paper
+3. 
 
 nice to haves:
 standardise naming convention

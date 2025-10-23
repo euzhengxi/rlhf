@@ -7,10 +7,11 @@ rollout = action, step, MDP, it can be indexed
 its possible to reverse the action performed during transform using inverse
 
 to review:
+why isnt the model learning? 
 double check the implementation for discrete distributions for actor
-backend - review prompt and results
-stepCount tracking - can be omitted for now
+backend - review prompt and results 
 latent feedback computation
+parameter sharing -> loss function that is defined in terms of actor, critic and entropy loss
 
 
 to read up before training:
